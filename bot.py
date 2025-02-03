@@ -6,11 +6,11 @@ from telegram.ext import Application, CommandHandler, CallbackContext
 
 # Load environment variables
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Your BotFather token
-HEDERA_API_KEY = os.getenv("HEDERA_API_KEY")  # Your Hedera API Key (Personal Access Token)
+HEDERA_API_KEY = os.getenv("HEDERA_API_KEY")  # Your Hedera API Key
 HEDERA_ACCOUNT_ID = os.getenv("HEDERA_RECEIVING_ACCOUNT")  # Wallet receiving payments
 SLOTH_AMOUNT = 10  # Amount required per vote in $SLOTH
-PAID_USERS = {}  # Dictionary to track who has paid
-USER_WALLETS = {}  # Stores user Telegram ID and their Hedera wallet
+PAID_USERS = {}  # Tracks paid users
+USER_WALLETS = {}  # Stores user Telegram ID & registered wallet
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,10 +21,12 @@ HEDERA_MIRROR_NODE_URL = "https://mainnet-public.mirrornode.hedera.com/api/v1/tr
 async def start(update: Update, context: CallbackContext):
     """Welcome message for the bot."""
     await update.message.reply_text(
-        "Welcome to SlothVoteBot! 🦥\n"
-        "To participate in polls, you must send a payment in $SLOTH.\n"
-        "First, register your sending wallet with /register.\n"
-        "Then use /vote to get payment instructions and /verify after sending payment."
+        "🦥 Welcome to SlothVoteBot! 🦥\n\n"
+        "To participate in voting, follow these steps:\n"
+        "1️⃣ **Register your sending wallet** → `/register 0.0.123456`\n"
+        "2️⃣ **Send 10 $SLOTH** to our wallet (use `/vote` for details)\n"
+        "3️⃣ **Verify your payment** → `/verify`\n\n"
+        "Once verified, you'll be able to participate in the poll!"
     )
 
 async def register(update: Update, context: CallbackContext):
@@ -33,29 +35,36 @@ async def register(update: Update, context: CallbackContext):
     args = context.args
 
     if not args:
-        await update.message.reply_text("⚠️ Please provide your Hedera wallet address after /register. Example:\n/register 0.0.123456")
+        await update.message.reply_text("⚠️ Please provide your Hedera wallet address after `/register`. Example:\n/register 0.0.123456")
         return
 
     wallet_address = args[0]
+
+    # Validate wallet address format
+    if not wallet_address.startswith("0.0.") or not wallet_address.replace("0.0.", "").isdigit():
+        await update.message.reply_text("⚠️ Invalid wallet address format! Use a valid Hedera account ID like `0.0.123456`.")
+        return
+
     USER_WALLETS[user_id] = wallet_address  # Save the user's wallet address
 
-    await update.message.reply_text(f"✅ Your wallet `{wallet_address}` has been registered!\nNow send `{SLOTH_AMOUNT} $SLOTH` and use /verify.")
+    await update.message.reply_text(f"✅ Your wallet `{wallet_address}` has been registered!\nNow send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`.")
 
 async def vote(update: Update, context: CallbackContext):
-    """Handles voting access requests."""
+    """Handles voting access requests and provides payment info."""
     user_id = update.message.from_user.id
 
     if user_id not in USER_WALLETS:
-        await update.message.reply_text("⚠️ You must first register your wallet using /register before voting!")
+        await update.message.reply_text("⚠️ You must first register your wallet using `/register` before voting!")
         return
 
     if user_id in PAID_USERS:
         await update.message.reply_text("✅ You've already paid! You can participate in the poll.")
     else:
         await update.message.reply_text(
+            f"💰 **Payment Required**\n\n"
             f"To vote, send `{SLOTH_AMOUNT} $SLOTH` to the following address:\n\n"
             f"🦥 **{HEDERA_ACCOUNT_ID}**\n\n"
-            "Once you've made the payment, use /verify to confirm your transaction."
+            "📌 Once you've made the payment, use `/verify` to confirm your transaction."
         )
 
 async def verify(update: Update, context: CallbackContext):
@@ -67,16 +76,16 @@ async def verify(update: Update, context: CallbackContext):
         return
 
     if user_id not in USER_WALLETS:
-        await update.message.reply_text("⚠️ You must first register your wallet using /register before verifying payment!")
+        await update.message.reply_text("⚠️ You must first register your wallet using `/register` before verifying payment!")
         return
 
     sender_wallet = USER_WALLETS[user_id]  # Get the user's registered wallet
 
-    # Call Hedera Mirror Node to check transactions
+    # Call Hedera Mirror Node to check transactions from sender to receiver
     response = requests.get(
         HEDERA_MIRROR_NODE_URL,
         headers={"x-api-key": HEDERA_API_KEY},
-        params={"account.id": sender_wallet, "limit": 10}  # Check transactions from sender's wallet
+        params={"account.id": sender_wallet, "limit": 25}  # Check more transactions
     )
 
     if response.status_code != 200:
@@ -87,12 +96,14 @@ async def verify(update: Update, context: CallbackContext):
     
     # Scan recent transactions to see if the user paid the required amount
     for transaction in data.get("transactions", []):
-        amount = sum(t["amount"] for t in transaction.get("transfers", []) if t["account"] == HEDERA_ACCOUNT_ID)
+        transfers = transaction.get("transfers", [])
 
-        if amount >= SLOTH_AMOUNT:
-            PAID_USERS[user_id] = True  # Mark user as paid
-            await update.message.reply_text("✅ Payment verified! You can now participate in the poll.")
-            return
+        # Check if there is a transfer from the sender to the recipient
+        for transfer in transfers:
+            if transfer["account"] == HEDERA_ACCOUNT_ID and abs(transfer["amount"]) >= SLOTH_AMOUNT:
+                PAID_USERS[user_id] = True  # Mark user as paid
+                await update.message.reply_text("✅ Payment verified! You can now participate in the poll.")
+                return
 
     await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount.")
 
