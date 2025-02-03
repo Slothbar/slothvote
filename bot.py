@@ -6,7 +6,6 @@ from telegram.ext import Application, CommandHandler, CallbackContext
 
 # Load environment variables
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Your BotFather token
-HEDERA_API_KEY = os.getenv("HEDERA_API_KEY")  # Your Hedera API Key
 HEDERA_ACCOUNT_ID = os.getenv("HEDERA_RECEIVING_ACCOUNT")  # Wallet receiving payments
 SLOTH_AMOUNT = 10  # Amount required per vote in $SLOTH
 PAID_USERS = {}  # Tracks paid users
@@ -15,7 +14,7 @@ USER_WALLETS = {}  # Stores user Telegram ID & registered wallet
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
-# Hedera Mirror Node API URL
+# Hedera Mirror Node API (Public)
 HEDERA_MIRROR_NODE_URL = "https://mainnet-public.mirrornode.hedera.com/api/v1/transactions"
 
 async def start(update: Update, context: CallbackContext):
@@ -81,11 +80,9 @@ async def verify(update: Update, context: CallbackContext):
 
     sender_wallet = USER_WALLETS[user_id]  # Get the user's registered wallet
 
-    # Call Hedera Mirror Node to check transactions from sender to receiver
+    # Call Hedera's **Public Mirror Node API** (No API Key required)
     response = requests.get(
-        HEDERA_MIRROR_NODE_URL,
-        headers={"x-api-key": HEDERA_API_KEY},
-        params={"account.id": sender_wallet, "limit": 25}  # Check more transactions
+        f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=25"
     )
 
     if response.status_code != 200:
@@ -93,7 +90,7 @@ async def verify(update: Update, context: CallbackContext):
         return
 
     data = response.json()
-    
+
     # Scan recent transactions to see if the user paid the required amount
     for transaction in data.get("transactions", []):
         transfers = transaction.get("transfers", [])
