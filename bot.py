@@ -2,7 +2,7 @@ import os
 import logging
 import requests
 from telegram import Update, Poll
-from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, PollHandler, CallbackContext
 
 # Load environment variables
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Your BotFather token
@@ -11,6 +11,7 @@ SLOTH_AMOUNT = 10  # Amount required per vote in $SLOTH
 SLOTH_TOKEN_ID = os.getenv("SLOTH_TOKEN_ID")  # Your $SLOTH Token ID (if HTS)
 PAID_USERS = {}  # Tracks paid users
 USER_WALLETS = {}  # Stores user Telegram ID & registered wallet
+ACTIVE_POLL_ID = None  # Stores the active poll ID if a poll exists
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +26,8 @@ async def start(update: Update, context: CallbackContext):
         "To participate in voting, follow these steps:\n"
         "1️⃣ **Register your sending wallet** → `/register 0.0.123456`\n"
         "2️⃣ **Send 10 $SLOTH** to our wallet (use `/vote` for details)\n"
-        "3️⃣ **Verify your payment** → `/verify`\n\n"
+        "3️⃣ **Verify your payment** → `/verify`\n"
+        "4️⃣ **Check active polls** → `/poll_status`\n\n"
         "Once verified, you'll be able to participate in the poll!"
     )
 
@@ -68,8 +70,12 @@ async def vote(update: Update, context: CallbackContext):
         )
 
 async def verify(update: Update, context: CallbackContext):
-    """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
+    """Verify if the user has sent the required amount of $SLOTH from their registered wallet and if a poll exists."""
     user_id = update.message.from_user.id
+
+    if ACTIVE_POLL_ID is None:
+        await update.message.reply_text("⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
+        return
 
     if user_id in PAID_USERS:
         await update.message.reply_text("✅ You've already paid! You can participate in the poll.")
@@ -91,7 +97,6 @@ async def verify(update: Update, context: CallbackContext):
         return
 
     data = response.json()
-    logging.info(f"📜 Retrieved transactions: {data}")  # DEBUG LOG
 
     # Scan recent transactions to see if the user paid the required amount
     for transaction in data.get("transactions", []):
@@ -114,6 +119,31 @@ async def verify(update: Update, context: CallbackContext):
 
     await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount.")
 
+async def create_poll(update: Update, context: CallbackContext):
+    """Admin command to create a new poll and track it."""
+    global ACTIVE_POLL_ID
+    if ACTIVE_POLL_ID is not None:
+        await update.message.reply_text("⚠️ A poll is already active! You cannot create a new one until the current poll ends.")
+        return
+
+    question = "Should we burn some $SLOTH tokens?"
+    options = ["Yes", "No"]
+
+    poll_message = await update.message.reply_poll(
+        question=question,
+        options=options,
+        is_anonymous=False  # Ensures fair voting
+    )
+    ACTIVE_POLL_ID = poll_message.poll.id  # Track poll ID
+    await update.message.reply_text("✅ Poll created! Users can now verify payments and vote.")
+
+async def poll_status(update: Update, context: CallbackContext):
+    """Check if a poll is currently active."""
+    if ACTIVE_POLL_ID:
+        await update.message.reply_text("✅ There is an active poll! Users who have paid can now vote.")
+    else:
+        await update.message.reply_text("⚠️ There is no active poll at the moment.")
+
 # Set up the bot
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -122,6 +152,8 @@ def main():
     application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("vote", vote))
     application.add_handler(CommandHandler("verify", verify))
+    application.add_handler(CommandHandler("create_poll", create_poll))
+    application.add_handler(CommandHandler("poll_status", poll_status))
 
     application.run_polling()
 
