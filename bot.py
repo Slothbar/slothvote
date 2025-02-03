@@ -19,8 +19,8 @@ ACTIVE_POLL = None  # Stores active poll details
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
-async def start(update: Update, context: CallbackContext):
-    """Welcome message for the bot."""
+async def begin(update: Update, context: CallbackContext):
+    """Welcome message for the bot (replaces /start)."""
     await update.message.reply_text(
         "🦥 Welcome to SlothVoteBot! 🦥\n\n"
         "To participate in voting, follow these steps:\n"
@@ -170,7 +170,7 @@ async def reset(update: Update, context: CallbackContext):
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("begin", begin))  # Replaced /start with /begin
     application.add_handler(ChatMemberHandler(welcome_new_user, ChatMemberHandler.CHAT_MEMBER))
     application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("verify", verify))
