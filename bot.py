@@ -11,13 +11,11 @@ SLOTH_AMOUNT = 10  # Amount required per vote in $SLOTH
 SLOTH_TOKEN_ID = os.getenv("SLOTH_TOKEN_ID")  # Your $SLOTH Token ID (if HTS)
 PAID_USERS = {}  # Tracks paid users
 USER_WALLETS = {}  # Stores user Telegram ID & registered wallet
-ACTIVE_POLL_ID = None  # Stores the active poll ID if a poll exists
+VOTED_USERS = set()  # Prevents duplicate votes
+ACTIVE_POLL = None  # Stores active poll details
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-
-# Hedera Mirror Node API (Public)
-HEDERA_MIRROR_NODE_URL = "https://mainnet-public.mirrornode.hedera.com/api/v1/transactions"
 
 async def start(update: Update, context: CallbackContext):
     """Welcome message for the bot."""
@@ -26,9 +24,8 @@ async def start(update: Update, context: CallbackContext):
         "To participate in voting, follow these steps:\n"
         "1️⃣ **Register your sending wallet** → `/register 0.0.123456`\n"
         "2️⃣ **Send 10 $SLOTH** to our wallet (use `/vote` for details)\n"
-        "3️⃣ **Verify your payment** → `/verify`\n"
-        "4️⃣ **Check active polls** → `/poll_status`\n\n"
-        "Once verified, you'll be able to participate in the poll!"
+        "3️⃣ **Verify your payment** → `/verify`\n\n"
+        "Once verified, you will receive the active poll!"
     )
 
 async def register(update: Update, context: CallbackContext):
@@ -51,34 +48,17 @@ async def register(update: Update, context: CallbackContext):
 
     await update.message.reply_text(f"✅ Your wallet `{wallet_address}` has been registered!\nNow send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`.")
 
-async def vote(update: Update, context: CallbackContext):
-    """Handles voting access requests and provides payment info."""
-    user_id = update.message.from_user.id
-
-    if user_id not in USER_WALLETS:
-        await update.message.reply_text("⚠️ You must first register your wallet using `/register` before voting!")
-        return
-
-    if user_id in PAID_USERS:
-        await update.message.reply_text("✅ You've already paid! You can participate in the poll.")
-    else:
-        await update.message.reply_text(
-            f"💰 **Payment Required**\n\n"
-            f"To vote, send `{SLOTH_AMOUNT} $SLOTH` to the following address:\n\n"
-            f"🦥 **{HEDERA_ACCOUNT_ID}**\n\n"
-            "📌 Once you've made the payment, use `/verify` to confirm your transaction."
-        )
-
 async def verify(update: Update, context: CallbackContext):
-    """Verify if the user has sent the required amount of $SLOTH from their registered wallet and if a poll exists."""
+    """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
     user_id = update.message.from_user.id
 
-    if ACTIVE_POLL_ID is None:
+    if ACTIVE_POLL is None:
         await update.message.reply_text("⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
         return
 
     if user_id in PAID_USERS:
-        await update.message.reply_text("✅ You've already paid! You can participate in the poll.")
+        await update.message.reply_text("✅ You've already paid! You will now receive the poll.")
+        await send_poll(update, context)  # Send poll immediately
         return
 
     if user_id not in USER_WALLETS:
@@ -107,42 +87,68 @@ async def verify(update: Update, context: CallbackContext):
         for transfer in transfers:
             if transfer["account"] == HEDERA_ACCOUNT_ID and abs(transfer["amount"]) >= SLOTH_AMOUNT:
                 PAID_USERS[user_id] = True  # Mark user as paid
-                await update.message.reply_text("✅ Payment verified! You can now participate in the poll.")
+                await update.message.reply_text("✅ Payment verified! Here is your poll:")
+                await send_poll(update, context)  # Send poll immediately
                 return
 
         # Check HTS Token Transfers (for $SLOTH as a token)
         for token_transfer in token_transfers:
             if token_transfer["token_id"] == SLOTH_TOKEN_ID and token_transfer["account"] == HEDERA_ACCOUNT_ID and abs(token_transfer["amount"]) >= SLOTH_AMOUNT:
                 PAID_USERS[user_id] = True  # Mark user as paid
-                await update.message.reply_text("✅ Payment verified! You can now participate in the poll.")
+                await update.message.reply_text("✅ Payment verified! Here is your poll:")
+                await send_poll(update, context)  # Send poll immediately
                 return
 
     await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount.")
 
-async def create_poll(update: Update, context: CallbackContext):
-    """Admin command to create a new poll and track it."""
-    global ACTIVE_POLL_ID
-    if ACTIVE_POLL_ID is not None:
-        await update.message.reply_text("⚠️ A poll is already active! You cannot create a new one until the current poll ends.")
+async def send_poll(update: Update, context: CallbackContext):
+    """Automatically sends the current poll to verified users."""
+    user_id = update.message.from_user.id
+
+    if user_id in VOTED_USERS:
+        await update.message.reply_text("⚠️ You have already voted! Duplicate votes are not allowed.")
         return
 
-    question = "Should we burn some $SLOTH tokens?"
-    options = ["Yes", "No"]
+    if not ACTIVE_POLL:
+        await update.message.reply_text("⚠️ No active poll available.")
+        return
 
     poll_message = await update.message.reply_poll(
-        question=question,
-        options=options,
-        is_anonymous=False  # Ensures fair voting
+        question=ACTIVE_POLL["question"],
+        options=ACTIVE_POLL["options"],
+        is_anonymous=False
     )
-    ACTIVE_POLL_ID = poll_message.poll.id  # Track poll ID
-    await update.message.reply_text("✅ Poll created! Users can now verify payments and vote.")
 
-async def poll_status(update: Update, context: CallbackContext):
-    """Check if a poll is currently active."""
-    if ACTIVE_POLL_ID:
-        await update.message.reply_text("✅ There is an active poll! Users who have paid can now vote.")
-    else:
-        await update.message.reply_text("⚠️ There is no active poll at the moment.")
+    VOTED_USERS.add(user_id)  # Prevent duplicate votes
+    await update.message.reply_text("✅ Your vote has been counted!")
+
+async def create_poll(update: Update, context: CallbackContext):
+    """Admin command to create a new poll dynamically."""
+    global ACTIVE_POLL
+
+    args = " ".join(context.args)
+    if not args or "|" not in args:
+        await update.message.reply_text("⚠️ Use `/create_poll question | option1 | option2 | option3`.")
+        return
+
+    parts = args.split("|")
+    question = parts[0].strip()
+    options = [opt.strip() for opt in parts[1:]]
+
+    if len(options) < 2:
+        await update.message.reply_text("⚠️ You must provide at least two options for the poll.")
+        return
+
+    ACTIVE_POLL = {"question": question, "options": options}
+    await update.message.reply_text("✅ Poll created! Users will receive this poll upon payment verification.")
+
+async def reset(update: Update, context: CallbackContext):
+    """Admin command to reset the paid users list and votes (for a new poll)."""
+    global PAID_USERS, VOTED_USERS, ACTIVE_POLL
+    PAID_USERS = {}  # Clear the paid users list
+    VOTED_USERS = set()  # Reset voting list
+    ACTIVE_POLL = None  # Reset poll
+    await update.message.reply_text("✅ All payments, votes, and polls have been reset. A new poll can now be created.")
 
 # Set up the bot
 def main():
@@ -150,10 +156,9 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("register", register))
-    application.add_handler(CommandHandler("vote", vote))
     application.add_handler(CommandHandler("verify", verify))
     application.add_handler(CommandHandler("create_poll", create_poll))
-    application.add_handler(CommandHandler("poll_status", poll_status))
+    application.add_handler(CommandHandler("reset", reset))
 
     application.run_polling()
 
