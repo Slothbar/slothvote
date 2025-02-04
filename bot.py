@@ -117,30 +117,6 @@ async def verify(update: Update, context: CallbackContext):
 
     await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
 
-async def send_poll(update: Update, context: CallbackContext):
-    """Automatically sends the current poll to verified users, including project details."""
-    user_id = update.message.from_user.id
-
-    if user_id in VOTED_USERS:
-        await update.message.reply_text("⚠️ You have already voted! Duplicate votes are not allowed.")
-        return
-
-    if not ACTIVE_POLL:
-        await update.message.reply_text("⚠️ No active poll available.")
-        return
-
-    if ACTIVE_POLL_INFO:
-        await update.message.reply_text(f"📝 **Poll Details:**\n{ACTIVE_POLL_INFO}")
-
-    poll_message = await update.message.reply_poll(
-        question=ACTIVE_POLL["question"],
-        options=ACTIVE_POLL["options"],
-        is_anonymous=False
-    )
-
-    VOTED_USERS.add(user_id)
-    await update.message.reply_text("✅ Your vote has been counted!")
-
 async def create_poll(update: Update, context: CallbackContext):
     """Admin command to create a new poll dynamically with optional project info."""
     global ACTIVE_POLL, ACTIVE_POLL_INFO
@@ -163,7 +139,8 @@ async def create_poll(update: Update, context: CallbackContext):
     ACTIVE_POLL_INFO = project_info if project_info else None  # Store project info if provided
 
     await update.message.reply_text("✅ Poll created! Users will receive this poll upon payment verification.")
-    async def reset(update: Update, context: CallbackContext):
+
+async def reset(update: Update, context: CallbackContext):
     """Admin-only command to reset all data (users, votes, and polls)."""
     global PAID_USERS, USER_WALLETS, VOTED_USERS, ACTIVE_POLL, ACTIVE_POLL_INFO
 
@@ -189,6 +166,7 @@ def main():
     application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("verify", verify))
     application.add_handler(CommandHandler("create_poll", create_poll))
+    application.add_handler(CommandHandler("reset", reset))  # ✅ Correctly added here
 
     application.run_polling()
 
