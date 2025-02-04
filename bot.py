@@ -32,25 +32,6 @@ async def begin(update: Update, context: CallbackContext):
         "Once verified, you will receive the active poll!"
     )
 
-async def welcome_new_user(update: Update, context: CallbackContext):
-    """Sends a welcome message when a user joins the group."""
-    chat_member: ChatMemberUpdated = update.chat_member
-    new_user = chat_member.new_chat_member.user
-
-    if chat_member.new_chat_member.status == "member":
-        welcome_message = (
-            f"👋 **Welcome to SlothBar Voting, {new_user.first_name}!** 🦥\n\n"
-            "Here’s how to participate in our voting system:\n"
-            "🗳 **User Commands:**\n"
-            "🔹 `/register 0.0.xxxxxx` – Link your Hedera wallet\n"
-            "🔹 `/vote` – Get payment details\n"
-            "🔹 `/verify` – Confirm payment & receive the poll\n"
-            "🔹 `/poll_status` – Check if voting is active\n\n"
-            "🚀 **Complete these steps to vote in our polls!**"
-        )
-
-        await context.bot.send_message(chat_id=chat_member.chat.id, text=welcome_message)
-
 async def register(update: Update, context: CallbackContext):
     """Register the user's sending wallet address."""
     user_id = update.message.from_user.id
@@ -69,6 +50,71 @@ async def register(update: Update, context: CallbackContext):
     USER_WALLETS[user_id] = wallet_address
 
     await update.message.reply_text(f"✅ Your wallet `{wallet_address}` has been registered!\nNow send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`.")
+
+async def verify(update: Update, context: CallbackContext):
+    """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
+    user_id = update.message.from_user.id
+
+    if ACTIVE_POLL is None:
+        await update.message.reply_text("⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
+        return
+
+    if user_id in PAID_USERS:
+        await update.message.reply_text("✅ You've already paid! You will now receive the poll.")
+        await send_poll(update, context)
+        return
+
+    if user_id not in USER_WALLETS:
+        await update.message.reply_text("⚠️ You must first register your wallet using `/register` before verifying payment!")
+        return
+
+    sender_wallet = USER_WALLETS[user_id]
+
+    response = requests.get(
+        f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=50"
+    )
+
+    if response.status_code != 200:
+        await update.message.reply_text("⚠️ Error checking transactions. Please try again later.")
+        return
+
+    data = response.json()
+
+    for transaction in data.get("transactions", []):
+        transfers = transaction.get("transfers", [])
+        token_transfers = transaction.get("token_transfers", [])
+
+        for transfer in transfers:
+            if transfer["account"] == HEDERA_ACCOUNT_ID and abs(transfer["amount"]) >= SLOTH_AMOUNT:
+                PAID_USERS[user_id] = True
+                await send_poll(update, context)
+                return
+
+    await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount.")
+
+async def send_poll(update: Update, context: CallbackContext):
+    """Automatically sends the current poll to verified users, including project details."""
+    user_id = update.message.from_user.id
+
+    if user_id in VOTED_USERS:
+        await update.message.reply_text("⚠️ You have already voted! Duplicate votes are not allowed.")
+        return
+
+    if not ACTIVE_POLL:
+        await update.message.reply_text("⚠️ No active poll available.")
+        return
+
+    if ACTIVE_POLL_INFO:
+        await update.message.reply_text(f"📝 **Poll Details:**\n{ACTIVE_POLL_INFO}")
+
+    poll_message = await update.message.reply_poll(
+        question=ACTIVE_POLL["question"],
+        options=ACTIVE_POLL["options"],
+        is_anonymous=False
+    )
+
+    VOTED_USERS.add(user_id)
+    await update.message.reply_text("✅ Your vote has been counted!")
 
 async def create_poll(update: Update, context: CallbackContext):
     """Admin command to create a new poll dynamically with optional project info."""
@@ -97,8 +143,8 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("begin", begin))
-    application.add_handler(ChatMemberHandler(welcome_new_user, ChatMemberHandler.CHAT_MEMBER))
-    application.add_handler(CommandHandler("register", register))  # ✅ FIXED: Restored /register command
+    application.add_handler(CommandHandler("register", register))  # ✅ `/register` is here
+    application.add_handler(CommandHandler("verify", verify))  # ✅ `/verify` is now restored
     application.add_handler(CommandHandler("create_poll", create_poll))
 
     application.run_polling()
