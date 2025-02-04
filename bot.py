@@ -73,7 +73,7 @@ async def verify(update: Update, context: CallbackContext):
 
     user_id = update.message.from_user.id
 
-    logging.info(f"DEBUG: Checking verification - ACTIVE_POLL: {ACTIVE_POLL}")  # ✅ Confirm it's being recognized
+    logging.info(f"✅ DEBUG: Checking verification - ACTIVE_POLL: {ACTIVE_POLL}")  # Log current poll
 
     if not ACTIVE_POLL:
         await update.message.reply_text("⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
@@ -90,7 +90,7 @@ async def verify(update: Update, context: CallbackContext):
 
     sender_wallet = USER_WALLETS[user_id]
 
-    # 🔹 Fetch last 100 transactions
+    # Fetch last 100 transactions
     response = requests.get(
         f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=100"
     )
@@ -100,16 +100,16 @@ async def verify(update: Update, context: CallbackContext):
         return
 
     data = response.json()
-    found_payment = False
+    found_payment = False  
 
-    logging.info(f"DEBUG: Latest Poll Timestamp: {LATEST_POLL_TIMESTAMP}")
+    logging.info(f"✅ DEBUG: Latest Poll Timestamp: {LATEST_POLL_TIMESTAMP}")
 
     for transaction in data.get("transactions", []):
         transaction_timestamp = float(transaction["consensus_timestamp"])
-        logging.info(f"DEBUG: Transaction Timestamp: {transaction_timestamp}")
+        logging.info(f"✅ DEBUG: Transaction Timestamp: {transaction_timestamp}")
 
         if LATEST_POLL_TIMESTAMP and transaction_timestamp < LATEST_POLL_TIMESTAMP:
-            logging.info(f"DEBUG: Skipping transaction {transaction['transaction_id']} (too old)")
+            logging.info(f"✅ DEBUG: Skipping transaction {transaction['transaction_id']} (too old)")
             continue
 
         for transfer in transaction.get("transfers", []):
@@ -145,7 +145,7 @@ async def create_poll(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ You must provide at least two options for the poll.")
         return
 
-    # 🔹 Fetch latest consensus timestamp from Hedera Mirror Node
+    # Fetch the latest timestamp for accurate tracking
     response = requests.get("https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?limit=1")
     if response.status_code == 200:
         latest_transaction = response.json().get("transactions", [{}])[0]
@@ -154,10 +154,9 @@ async def create_poll(update: Update, context: CallbackContext):
         LATEST_POLL_TIMESTAMP = time.time()  # Fallback if API fails
 
     ACTIVE_POLL = {"question": question, "options": options}
-    ACTIVE_POLL_INFO = project_info if project_info else None  # Store project info if provided
+    ACTIVE_POLL_INFO = project_info if project_info else None  
 
-    logging.info(f"DEBUG: Active poll set: {ACTIVE_POLL}")  # ✅ Confirm poll is being stored
-
+    logging.info(f"✅ DEBUG: Active poll set -> {ACTIVE_POLL}")  # Confirm poll is stored
     await update.message.reply_text("✅ Poll created! Users will receive this poll upon payment verification.")
 
 def main():
