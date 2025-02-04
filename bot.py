@@ -33,7 +33,7 @@ async def begin(update: Update, context: CallbackContext):
     )
 
 async def register(update: Update, context: CallbackContext):
-    """Register the user's sending wallet address and mask it in chat."""
+    """Register the user's sending wallet address, mask it in chat, and delete the user's input."""
     user_id = update.message.from_user.id
     args = context.args
 
@@ -49,8 +49,14 @@ async def register(update: Update, context: CallbackContext):
 
     USER_WALLETS[user_id] = wallet_address  # Store the real wallet
 
-    # Mask the wallet for the group message (keep the first part as X.X.)
+    # Mask the wallet for the group message
     masked_wallet = "X.X.XXXXXXX"
+
+    # 🚨 Delete user's message to hide their input
+    try:
+        await update.message.delete()
+    except Exception as e:
+        logging.warning(f"Could not delete message: {e}")
 
     await update.message.reply_text(f"✅ Your wallet `{masked_wallet}` has been registered!\nNow send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`.")
 
