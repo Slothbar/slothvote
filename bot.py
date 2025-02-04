@@ -163,6 +163,24 @@ async def create_poll(update: Update, context: CallbackContext):
     ACTIVE_POLL_INFO = project_info if project_info else None  # Store project info if provided
 
     await update.message.reply_text("✅ Poll created! Users will receive this poll upon payment verification.")
+    async def reset(update: Update, context: CallbackContext):
+    """Admin-only command to reset all data (users, votes, and polls)."""
+    global PAID_USERS, USER_WALLETS, VOTED_USERS, ACTIVE_POLL, ACTIVE_POLL_INFO
+
+    # Ensure only admins can use this command
+    user_status = await context.bot.get_chat_member(update.message.chat_id, update.message.from_user.id)
+    if user_status.status not in ["administrator", "creator"]:
+        await update.message.reply_text("⚠️ You must be an admin to use this command!")
+        return
+
+    # Reset all data
+    PAID_USERS = {}
+    USER_WALLETS = {}
+    VOTED_USERS.clear()
+    ACTIVE_POLL = None
+    ACTIVE_POLL_INFO = None
+
+    await update.message.reply_text("🔄 All data has been reset. The bot is now fresh and ready!")
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
