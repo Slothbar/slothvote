@@ -22,15 +22,18 @@ logging.basicConfig(level=logging.INFO)
 
 async def begin(update: Update, context: CallbackContext):
     """Welcome message for the bot (replaces /start)."""
-    await update.message.reply_text(
-        "🦥 Welcome to SlothVoteBot! 🦥\n\n"
-        "To participate in voting, follow these steps:\n"
-        "1️⃣ **Register your sending wallet** → `/register 0.0.123456`\n"
-        "2️⃣ **Send 10 $SLOTH** to our wallet (use `/vote` for details)\n"
-        "3️⃣ **Verify your payment** → `/verify`\n"
-        "4️⃣ **Check active polls** → `/poll_status`\n\n"
-        "Once verified, you will receive the active poll!"
+    chat_id = update.message.chat_id  # ✅ Ensure message is sent in the correct chat
+
+    await context.bot.send_message(chat_id=chat_id,
+        text="🦥 Welcome to SlothVoteBot! 🦥\n\n"
+             "To participate in voting, follow these steps:\n"
+             "1️⃣ **Register your sending wallet** → `/register 0.0.123456`\n"
+             "2️⃣ **Send 10 $SLOTH** to our wallet (use `/vote` for details)\n"
+             "3️⃣ **Verify your payment** → `/verify`\n"
+             "4️⃣ **Check active polls** → `/poll_status`\n\n"
+             "Once verified, you will receive the active poll!"
     )
+
 
 async def send_poll(update: Update, context: CallbackContext):
     """Sends the current poll in the group and waits for user votes."""
