@@ -1,10 +1,9 @@
 import os
 import logging
 import requests
-import time
-from telegram import Update, Poll, ChatMemberUpdated
+from telegram import Update, Poll
 from telegram.ext import (
-    Application, CommandHandler, PollHandler, CallbackContext, ChatMemberHandler
+    Application, CommandHandler, PollHandler, CallbackContext
 )
 
 # Load environment variables
@@ -17,7 +16,6 @@ USER_WALLETS = {}  # Stores user Telegram ID & registered wallet
 VOTED_USERS = set()  # Prevents duplicate votes
 ACTIVE_POLL = None  # Stores active poll details
 ACTIVE_POLL_INFO = None  # Stores additional poll description
-LATEST_POLL_TIMESTAMP = None  # Tracks when the latest poll started
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +31,43 @@ async def begin(update: Update, context: CallbackContext):
         "4️⃣ **Check active polls** → `/poll_status`\n\n"
         "Once verified, you will receive the active poll!"
     )
+
+async def send_poll(update: Update, context: CallbackContext):
+    """Sends the current poll in the group and waits for user votes."""
+    chat_id = update.message.chat_id  # ✅ Send poll in the group chat
+
+    logging.info(f"✅ DEBUG: Sending poll - ACTIVE_POLL: {ACTIVE_POLL}")
+
+    if not ACTIVE_POLL:
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ No active poll available.")
+        return
+
+    if ACTIVE_POLL_INFO:
+        await context.bot.send_message(chat_id=chat_id, text=f"📝 **Poll Details:**\n{ACTIVE_POLL_INFO}")
+
+    try:
+        poll_message = await context.bot.send_poll(
+            chat_id=chat_id,  # ✅ Sends poll in the group chat
+            question=ACTIVE_POLL["question"],
+            options=ACTIVE_POLL["options"],
+            is_anonymous=False
+        )
+
+        # Store poll message ID to track votes later
+        context.bot_data["poll_id"] = poll_message.poll.id
+
+    except Exception as e:
+        logging.error(f"❌ ERROR sending poll: {e}")
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ Error sending poll. Please contact an admin.")
+
+async def poll_handler(update: Update, context: CallbackContext):
+    """Handles user votes and confirms after they vote."""
+    poll = update.poll
+    chat_id = update.effective_chat.id
+
+    # Check if this is the active poll
+    if poll.id == context.bot_data.get("poll_id"):
+        await context.bot.send_message(chat_id=chat_id, text="✅ Your vote has been counted!")
 
 async def register(update: Update, context: CallbackContext):
     """Register the user's sending wallet address, mask it in chat, and delete the user's input while confirming registration."""
@@ -66,53 +101,17 @@ async def register(update: Update, context: CallbackContext):
         text=f"✅ Your wallet `{masked_wallet}` has been registered!\n"
              f"Now send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`."
     )
-    
-async def send_poll(update: Update, context: CallbackContext):
-    """Automatically sends the current poll to verified users, including project details."""
-    user_id = update.message.from_user.id
-    chat_id = update.message.chat_id  # Get the chat ID
-
-    logging.info(f"✅ DEBUG: Sending poll - ACTIVE_POLL: {ACTIVE_POLL}")
-
-    if user_id in VOTED_USERS:
-        await context.bot.send_message(chat_id=user_id, text="⚠️ You have already voted! Duplicate votes are not allowed.")
-        return
-
-    if not ACTIVE_POLL:
-        await context.bot.send_message(chat_id=user_id, text="⚠️ No active poll available.")
-        return
-
-    if ACTIVE_POLL_INFO:
-        await context.bot.send_message(chat_id=user_id, text=f"📝 **Poll Details:**\n{ACTIVE_POLL_INFO}")
-
-    try:
-        poll_message = await context.bot.send_poll(
-            chat_id=user_id,  # Send poll directly to user
-            question=ACTIVE_POLL["question"],
-            options=ACTIVE_POLL["options"],
-            is_anonymous=False
-        )
-        VOTED_USERS.add(user_id)
-        await context.bot.send_message(chat_id=user_id, text="✅ Your vote has been counted!")
-
-    except Exception as e:
-        logging.error(f"❌ ERROR sending poll: {e}")
-        await context.bot.send_message(chat_id=user_id, text="⚠️ Error sending poll. Please contact an admin.")
 
 async def verify(update: Update, context: CallbackContext):
     """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
-    global ACTIVE_POLL, LATEST_POLL_TIMESTAMP
-
     user_id = update.message.from_user.id
 
-    logging.info(f"✅ DEBUG: Checking verification - ACTIVE_POLL: {ACTIVE_POLL}")  # Log current poll
-
-    if not ACTIVE_POLL:
+    if ACTIVE_POLL is None:
         await update.message.reply_text("⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
         return
 
     if user_id in PAID_USERS:
-        await update.message.reply_text("✅ You've already paid for this poll! You will now receive the poll.")
+        await update.message.reply_text("✅ You've already paid! You will now receive the poll.")
         await send_poll(update, context)
         return
 
@@ -122,7 +121,7 @@ async def verify(update: Update, context: CallbackContext):
 
     sender_wallet = USER_WALLETS[user_id]
 
-    # Fetch last 100 transactions
+    # 🔹 Fetch last 100 transactions (increased from 50)
     response = requests.get(
         f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=100"
     )
@@ -132,23 +131,19 @@ async def verify(update: Update, context: CallbackContext):
         return
 
     data = response.json()
-    found_payment = False  
-
-    logging.info(f"✅ DEBUG: Latest Poll Timestamp: {LATEST_POLL_TIMESTAMP}")
+    found_payment = False  # Flag to track if we find a valid transaction
 
     for transaction in data.get("transactions", []):
-        transaction_timestamp = float(transaction["consensus_timestamp"])
-        logging.info(f"✅ DEBUG: Transaction Timestamp: {transaction_timestamp}")
+        transfers = transaction.get("transfers", [])
+        token_transfers = transaction.get("token_transfers", [])
 
-        if LATEST_POLL_TIMESTAMP and transaction_timestamp < LATEST_POLL_TIMESTAMP:
-            logging.info(f"✅ DEBUG: Skipping transaction {transaction['transaction_id']} (too old)")
-            continue
-
-        for transfer in transaction.get("transfers", []):
+        # 🔹 Check if payment was sent via HBAR transfer
+        for transfer in transfers:
             if transfer["account"] == HEDERA_ACCOUNT_ID and abs(transfer["amount"]) >= SLOTH_AMOUNT:
                 found_payment = True
 
-        for transfer in transaction.get("token_transfers", []):
+        # 🔹 Check if payment was sent via $SLOTH token (HTS transfer)
+        for transfer in token_transfers:
             if transfer["token_id"] == SLOTH_TOKEN_ID and transfer["account"] == HEDERA_ACCOUNT_ID:
                 found_payment = True
 
@@ -157,11 +152,11 @@ async def verify(update: Update, context: CallbackContext):
             await send_poll(update, context)
             return
 
-    await update.message.reply_text("⚠️ No valid payment found from your registered wallet for this poll. Make sure you sent the correct amount and try again.")
+    await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
 
 async def create_poll(update: Update, context: CallbackContext):
     """Admin command to create a new poll dynamically with optional project info."""
-    global ACTIVE_POLL, ACTIVE_POLL_INFO, LATEST_POLL_TIMESTAMP
+    global ACTIVE_POLL, ACTIVE_POLL_INFO
 
     args = " ".join(context.args)
     if not args or "|" not in args:
@@ -177,18 +172,9 @@ async def create_poll(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ You must provide at least two options for the poll.")
         return
 
-    # Fetch the latest timestamp for accurate tracking
-    response = requests.get("https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?limit=1")
-    if response.status_code == 200:
-        latest_transaction = response.json().get("transactions", [{}])[0]
-        LATEST_POLL_TIMESTAMP = float(latest_transaction.get("consensus_timestamp", time.time()))
-    else:
-        LATEST_POLL_TIMESTAMP = time.time()  # Fallback if API fails
-
     ACTIVE_POLL = {"question": question, "options": options}
-    ACTIVE_POLL_INFO = project_info if project_info else None  
+    ACTIVE_POLL_INFO = project_info if project_info else None  # Store project info if provided
 
-    logging.info(f"✅ DEBUG: Active poll set -> {ACTIVE_POLL}")  # Confirm poll is stored
     await update.message.reply_text("✅ Poll created! Users will receive this poll upon payment verification.")
 
 def main():
@@ -198,6 +184,7 @@ def main():
     application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("verify", verify))
     application.add_handler(CommandHandler("create_poll", create_poll))
+    application.add_handler(PollHandler(poll_handler))  # Track votes
 
     application.run_polling()
 
