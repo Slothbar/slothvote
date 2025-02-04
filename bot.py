@@ -110,7 +110,7 @@ async def register(update: Update, context: CallbackContext):
 async def verify(update: Update, context: CallbackContext):
     """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
     user_id = update.message.from_user.id
-    chat_id = update.message.chat_id  # ✅ Fix: Ensure messages go to the group
+    chat_id = update.message.chat_id  # ✅ Ensures messages stay in the group
 
     if ACTIVE_POLL is None:
         await context.bot.send_message(chat_id=chat_id, text="⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
@@ -127,17 +127,16 @@ async def verify(update: Update, context: CallbackContext):
 
     sender_wallet = USER_WALLETS[user_id]
 
-    # 🔹 Fetch last 100 transactions (increased from 50)
-    response = requests.get(
-        f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=100"
-    )
+    # 🔹 Fetch last 50 transactions (mirror node API)
+    url = f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=50"
+    response = requests.get(url)
 
     if response.status_code != 200:
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Error checking transactions. Please try again later.")
         return
 
     data = response.json()
-    found_payment = False  # Flag to track if we find a valid transaction
+    found_payment = False  # ✅ Flag to track if we find a valid transaction
 
     for transaction in data.get("transactions", []):
         transfers = transaction.get("transfers", [])
@@ -147,18 +146,23 @@ async def verify(update: Update, context: CallbackContext):
         for transfer in transfers:
             if transfer["account"] == HEDERA_ACCOUNT_ID and abs(transfer["amount"]) >= SLOTH_AMOUNT:
                 found_payment = True
+                break  # ✅ Exit loop if found
 
         # 🔹 Check if payment was sent via $SLOTH token (HTS transfer)
         for transfer in token_transfers:
             if transfer["token_id"] == SLOTH_TOKEN_ID and transfer["account"] == HEDERA_ACCOUNT_ID:
                 found_payment = True
+                break  # ✅ Exit loop if found
 
         if found_payment:
-            PAID_USERS[user_id] = True
-            await send_poll(update, context)
-            return
+            break  # ✅ Stop checking once a valid transaction is found
 
-    await context.bot.send_message(chat_id=chat_id, text="⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
+    if found_payment:
+        PAID_USERS[user_id] = True
+        await context.bot.send_message(chat_id=chat_id, text="✅ Payment received! You may now vote.")
+        await send_poll(update, context)
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
 
 async def create_poll(update: Update, context: CallbackContext):
     """Admin command to create a new poll dynamically with optional project info."""
