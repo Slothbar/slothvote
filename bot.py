@@ -69,11 +69,13 @@ async def register(update: Update, context: CallbackContext):
 
 async def verify(update: Update, context: CallbackContext):
     """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
-    global LATEST_POLL_TIMESTAMP
+    global ACTIVE_POLL, LATEST_POLL_TIMESTAMP
 
     user_id = update.message.from_user.id
 
-    if ACTIVE_POLL is None:
+    logging.info(f"DEBUG: Checking verification - ACTIVE_POLL: {ACTIVE_POLL}")  # ✅ Confirm it's being recognized
+
+    if not ACTIVE_POLL:
         await update.message.reply_text("⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
         return
 
@@ -98,7 +100,7 @@ async def verify(update: Update, context: CallbackContext):
         return
 
     data = response.json()
-    found_payment = False  # Flag to track if we find a valid transaction
+    found_payment = False
 
     logging.info(f"DEBUG: Latest Poll Timestamp: {LATEST_POLL_TIMESTAMP}")
 
@@ -106,17 +108,14 @@ async def verify(update: Update, context: CallbackContext):
         transaction_timestamp = float(transaction["consensus_timestamp"])
         logging.info(f"DEBUG: Transaction Timestamp: {transaction_timestamp}")
 
-        # Skip old transactions (must be after LATEST_POLL_TIMESTAMP)
         if LATEST_POLL_TIMESTAMP and transaction_timestamp < LATEST_POLL_TIMESTAMP:
             logging.info(f"DEBUG: Skipping transaction {transaction['transaction_id']} (too old)")
             continue
 
-        # 🔹 Check if payment was sent via HBAR transfer
         for transfer in transaction.get("transfers", []):
             if transfer["account"] == HEDERA_ACCOUNT_ID and abs(transfer["amount"]) >= SLOTH_AMOUNT:
                 found_payment = True
 
-        # 🔹 Check if payment was sent via $SLOTH token (HTS transfer)
         for transfer in transaction.get("token_transfers", []):
             if transfer["token_id"] == SLOTH_TOKEN_ID and transfer["account"] == HEDERA_ACCOUNT_ID:
                 found_payment = True
@@ -156,6 +155,8 @@ async def create_poll(update: Update, context: CallbackContext):
 
     ACTIVE_POLL = {"question": question, "options": options}
     ACTIVE_POLL_INFO = project_info if project_info else None  # Store project info if provided
+
+    logging.info(f"DEBUG: Active poll set: {ACTIVE_POLL}")  # ✅ Confirm poll is being stored
 
     await update.message.reply_text("✅ Poll created! Users will receive this poll upon payment verification.")
 
