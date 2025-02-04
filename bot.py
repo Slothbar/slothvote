@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 async def begin(update: Update, context: CallbackContext):
     """Welcome message for the bot."""
     await update.message.reply_text(
-        "\U0001F9A5 Welcome to SlothVoteBot! \U0001F9A5\n\n"
+        "🦥 Welcome to SlothVoteBot! 🦥\n\n"
         "To participate in voting, follow these steps:\n"
         "1️⃣ **Register your sending wallet** → `/register 0.0.123456`\n"
         "2️⃣ **Send 10 $SLOTH** to our wallet (use `/vote` for details)\n"
@@ -99,6 +99,30 @@ async def verify(update: Update, context: CallbackContext):
 
     await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
 
+async def send_poll(update: Update, context: CallbackContext):
+    """Automatically sends the current poll to verified users."""
+    user_id = update.message.from_user.id
+
+    if user_id in VOTED_USERS:
+        await update.message.reply_text("⚠️ You have already voted! Duplicate votes are not allowed.")
+        return
+
+    if not ACTIVE_POLL:
+        await update.message.reply_text("⚠️ No active poll available.")
+        return
+
+    if ACTIVE_POLL_INFO:
+        await update.message.reply_text(f"📝 **Poll Details:**\n{ACTIVE_POLL_INFO}")
+
+    poll_message = await update.message.reply_poll(
+        question=ACTIVE_POLL["question"],
+        options=ACTIVE_POLL["options"],
+        is_anonymous=False
+    )
+
+    VOTED_USERS.add(user_id)
+    await update.message.reply_text("✅ Thank you for voting!")
+
 async def create_poll(update: Update, context: CallbackContext):
     """Create a new poll dynamically."""
     global ACTIVE_POLL, ACTIVE_POLL_INFO
@@ -126,7 +150,7 @@ def main():
     application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("verify", verify))
     application.add_handler(CommandHandler("create_poll", create_poll))
-    application.add_handler(PollHandler(send_poll))
+    application.add_handler(PollHandler(send_poll))  # 🔥 Ensure send_poll is properly added
 
     application.run_polling()
 
