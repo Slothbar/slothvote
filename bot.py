@@ -72,16 +72,21 @@ async def poll_handler(update: Update, context: CallbackContext):
 async def register(update: Update, context: CallbackContext):
     """Register the user's sending wallet address, mask it in chat, and delete the user's input while confirming registration."""
     user_id = update.message.from_user.id
+    chat_id = update.message.chat_id  # ✅ Fix: Ensure messages go to the group
     args = context.args
 
     if not args:
-        await update.message.reply_text("⚠️ Please provide your Hedera wallet address after `/register`. Example:\n/register 0.0.1234567")
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ Please provide your Hedera wallet address after `/register`. Example:\n/register 0.0.1234567")
         return
 
     wallet_address = args[0]
 
     if not wallet_address.startswith("0.0.") or not wallet_address.replace("0.0.", "").isdigit():
-        await update.message.reply_text("⚠️ Invalid wallet address format! Use a valid Hedera account ID like `0.0.1234567`.")
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ Invalid wallet address format! Use a valid Hedera account ID like `0.0.1234567`.")
+        return
+
+    if user_id in USER_WALLETS:
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ You have already registered a wallet!")
         return
 
     USER_WALLETS[user_id] = wallet_address  # Store the real wallet
@@ -97,7 +102,7 @@ async def register(update: Update, context: CallbackContext):
 
     # ✅ Send a NEW message (instead of replying to deleted one)
     await context.bot.send_message(
-        chat_id=update.message.chat_id,
+        chat_id=chat_id,
         text=f"✅ Your wallet `{masked_wallet}` has been registered!\n"
              f"Now send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`."
     )
@@ -105,18 +110,19 @@ async def register(update: Update, context: CallbackContext):
 async def verify(update: Update, context: CallbackContext):
     """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
     user_id = update.message.from_user.id
+    chat_id = update.message.chat_id  # ✅ Fix: Ensure messages go to the group
 
     if ACTIVE_POLL is None:
-        await update.message.reply_text("⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ There is no active poll right now. Please wait for the next poll before verifying payment.")
         return
 
     if user_id in PAID_USERS:
-        await update.message.reply_text("✅ You've already paid! You will now receive the poll.")
+        await context.bot.send_message(chat_id=chat_id, text="✅ You've already paid! You will now receive the poll.")
         await send_poll(update, context)
         return
 
     if user_id not in USER_WALLETS:
-        await update.message.reply_text("⚠️ You must first register your wallet using `/register` before verifying payment!")
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ You must first register your wallet using `/register` before verifying payment!")
         return
 
     sender_wallet = USER_WALLETS[user_id]
@@ -127,7 +133,7 @@ async def verify(update: Update, context: CallbackContext):
     )
 
     if response.status_code != 200:
-        await update.message.reply_text("⚠️ Error checking transactions. Please try again later.")
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ Error checking transactions. Please try again later.")
         return
 
     data = response.json()
@@ -152,7 +158,7 @@ async def verify(update: Update, context: CallbackContext):
             await send_poll(update, context)
             return
 
-    await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
+    await context.bot.send_message(chat_id=chat_id, text="⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
 
 async def create_poll(update: Update, context: CallbackContext):
     """Admin command to create a new poll dynamically with optional project info."""
