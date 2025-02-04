@@ -1,6 +1,7 @@
 import os
 import logging
 import requests
+import time
 from telegram import Update, Poll, ChatMemberUpdated
 from telegram.ext import (
     Application, CommandHandler, PollHandler, CallbackContext, ChatMemberHandler
@@ -16,6 +17,7 @@ USER_WALLETS = {}  # Stores user Telegram ID & registered wallet
 VOTED_USERS = set()  # Prevents duplicate votes
 ACTIVE_POLL = None  # Stores active poll details
 ACTIVE_POLL_INFO = None  # Stores additional poll description
+LATEST_POLL_TIMESTAMP = None  # Tracks when the latest poll started
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -67,6 +69,8 @@ async def register(update: Update, context: CallbackContext):
 
 async def verify(update: Update, context: CallbackContext):
     """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
+    global LATEST_POLL_TIMESTAMP
+
     user_id = update.message.from_user.id
 
     if ACTIVE_POLL is None:
@@ -74,7 +78,7 @@ async def verify(update: Update, context: CallbackContext):
         return
 
     if user_id in PAID_USERS:
-        await update.message.reply_text("✅ You've already paid! You will now receive the poll.")
+        await update.message.reply_text("✅ You've already paid for this poll! You will now receive the poll.")
         await send_poll(update, context)
         return
 
@@ -84,7 +88,7 @@ async def verify(update: Update, context: CallbackContext):
 
     sender_wallet = USER_WALLETS[user_id]
 
-    # 🔹 Fetch last 100 transactions (increased from 50)
+    # 🔹 Fetch last 100 transactions
     response = requests.get(
         f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=100"
     )
@@ -99,6 +103,13 @@ async def verify(update: Update, context: CallbackContext):
     for transaction in data.get("transactions", []):
         transfers = transaction.get("transfers", [])
         token_transfers = transaction.get("token_transfers", [])
+
+        # Get transaction timestamp
+        transaction_timestamp = float(transaction["consensus_timestamp"])
+
+        # Skip old transactions (must be after LATEST_POLL_TIMESTAMP)
+        if LATEST_POLL_TIMESTAMP and transaction_timestamp < LATEST_POLL_TIMESTAMP:
+            continue
 
         # 🔹 Check if payment was sent via HBAR transfer
         for transfer in transfers:
@@ -115,11 +126,11 @@ async def verify(update: Update, context: CallbackContext):
             await send_poll(update, context)
             return
 
-    await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
+    await update.message.reply_text("⚠️ No valid payment found from your registered wallet for this poll. Make sure you sent the correct amount and try again.")
 
 async def create_poll(update: Update, context: CallbackContext):
     """Admin command to create a new poll dynamically with optional project info."""
-    global ACTIVE_POLL, ACTIVE_POLL_INFO
+    global ACTIVE_POLL, ACTIVE_POLL_INFO, LATEST_POLL_TIMESTAMP
 
     args = " ".join(context.args)
     if not args or "|" not in args:
@@ -135,29 +146,13 @@ async def create_poll(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ You must provide at least two options for the poll.")
         return
 
+    # Set the timestamp of when this poll was created
+    LATEST_POLL_TIMESTAMP = time.time()
+
     ACTIVE_POLL = {"question": question, "options": options}
     ACTIVE_POLL_INFO = project_info if project_info else None  # Store project info if provided
 
     await update.message.reply_text("✅ Poll created! Users will receive this poll upon payment verification.")
-
-async def reset(update: Update, context: CallbackContext):
-    """Admin-only command to reset all data (users, votes, and polls)."""
-    global PAID_USERS, USER_WALLETS, VOTED_USERS, ACTIVE_POLL, ACTIVE_POLL_INFO
-
-    # Ensure only admins can use this command
-    user_status = await context.bot.get_chat_member(update.message.chat_id, update.message.from_user.id)
-    if user_status.status not in ["administrator", "creator"]:
-        await update.message.reply_text("⚠️ You must be an admin to use this command!")
-        return
-
-    # Reset all data
-    PAID_USERS = {}
-    USER_WALLETS = {}
-    VOTED_USERS.clear()
-    ACTIVE_POLL = None
-    ACTIVE_POLL_INFO = None
-
-    await update.message.reply_text("🔄 All data has been reset. The bot is now fresh and ready!")
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -166,7 +161,6 @@ def main():
     application.add_handler(CommandHandler("register", register))
     application.add_handler(CommandHandler("verify", verify))
     application.add_handler(CommandHandler("create_poll", create_poll))
-    application.add_handler(CommandHandler("reset", reset))  # ✅ Correctly added here
 
     application.run_polling()
 
