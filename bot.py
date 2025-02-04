@@ -100,24 +100,24 @@ async def verify(update: Update, context: CallbackContext):
     data = response.json()
     found_payment = False  # Flag to track if we find a valid transaction
 
-    for transaction in data.get("transactions", []):
-        transfers = transaction.get("transfers", [])
-        token_transfers = transaction.get("token_transfers", [])
+    logging.info(f"DEBUG: Latest Poll Timestamp: {LATEST_POLL_TIMESTAMP}")
 
-        # Get transaction timestamp
+    for transaction in data.get("transactions", []):
         transaction_timestamp = float(transaction["consensus_timestamp"])
+        logging.info(f"DEBUG: Transaction Timestamp: {transaction_timestamp}")
 
         # Skip old transactions (must be after LATEST_POLL_TIMESTAMP)
         if LATEST_POLL_TIMESTAMP and transaction_timestamp < LATEST_POLL_TIMESTAMP:
+            logging.info(f"DEBUG: Skipping transaction {transaction['transaction_id']} (too old)")
             continue
 
         # 🔹 Check if payment was sent via HBAR transfer
-        for transfer in transfers:
+        for transfer in transaction.get("transfers", []):
             if transfer["account"] == HEDERA_ACCOUNT_ID and abs(transfer["amount"]) >= SLOTH_AMOUNT:
                 found_payment = True
 
         # 🔹 Check if payment was sent via $SLOTH token (HTS transfer)
-        for transfer in token_transfers:
+        for transfer in transaction.get("token_transfers", []):
             if transfer["token_id"] == SLOTH_TOKEN_ID and transfer["account"] == HEDERA_ACCOUNT_ID:
                 found_payment = True
 
@@ -146,8 +146,13 @@ async def create_poll(update: Update, context: CallbackContext):
         await update.message.reply_text("⚠️ You must provide at least two options for the poll.")
         return
 
-    # Set the timestamp of when this poll was created
-    LATEST_POLL_TIMESTAMP = time.time()
+    # 🔹 Fetch latest consensus timestamp from Hedera Mirror Node
+    response = requests.get("https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?limit=1")
+    if response.status_code == 200:
+        latest_transaction = response.json().get("transactions", [{}])[0]
+        LATEST_POLL_TIMESTAMP = float(latest_transaction.get("consensus_timestamp", time.time()))
+    else:
+        LATEST_POLL_TIMESTAMP = time.time()  # Fallback if API fails
 
     ACTIVE_POLL = {"question": question, "options": options}
     ACTIVE_POLL_INFO = project_info if project_info else None  # Store project info if provided
