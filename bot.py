@@ -99,26 +99,25 @@ async def verify(update: Update, context: CallbackContext):
 
     await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
 
-async def send_poll(update: Update, context: CallbackContext):
-    """Automatically sends the current poll to verified users."""
-    user_id = update.message.from_user.id
+async def create_poll(update: Update, context: CallbackContext):
+    """Create a new poll dynamically."""
+    global ACTIVE_POLL, ACTIVE_POLL_INFO
+    args = context.args
     
-    if user_id in VOTED_USERS:
-        await update.message.reply_text("⚠️ You have already voted! Duplicate votes are not allowed.")
+    if not args or "|" not in " ".join(args):
+        await update.message.reply_text("⚠️ Use `/create_poll question | option1 | option2 | ...`.")
+        return
+    
+    parts = " ".join(args).split("|")
+    question = parts[0].strip()
+    options = [opt.strip() for opt in parts[1:]]
+
+    if len(options) < 2:
+        await update.message.reply_text("⚠️ You must provide at least two options for the poll.")
         return
 
-    if not ACTIVE_POLL:
-        await update.message.reply_text("⚠️ No active poll available.")
-        return
-
-    poll_message = await update.message.reply_poll(
-        question=ACTIVE_POLL["question"],
-        options=ACTIVE_POLL["options"],
-        is_anonymous=False
-    )
-
-    VOTED_USERS.add(user_id)
-    await update.message.reply_text("✅ Thank you for voting!")
+    ACTIVE_POLL = {"question": question, "options": options}
+    await update.message.reply_text("✅ Poll created! Users will receive this poll upon payment verification.")
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
