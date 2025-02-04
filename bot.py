@@ -33,7 +33,7 @@ async def begin(update: Update, context: CallbackContext):
     )
 
 async def register(update: Update, context: CallbackContext):
-    """Register the user's sending wallet address, mask it in chat, and delete the user's input."""
+    """Register the user's sending wallet address, mask it in chat, and delete the user's input while confirming registration."""
     user_id = update.message.from_user.id
     args = context.args
 
@@ -58,7 +58,11 @@ async def register(update: Update, context: CallbackContext):
     except Exception as e:
         logging.warning(f"Could not delete message: {e}")
 
-    await update.message.reply_text(f"✅ Your wallet `{masked_wallet}` has been registered!\nNow send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`.")
+    # ✅ Reply with confirmation that the wallet was registered
+    await update.message.reply_text(
+        f"✅ Your wallet `{masked_wallet}` has been registered!\n"
+        f"Now send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`."
+    )
 
 async def verify(update: Update, context: CallbackContext):
     """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
