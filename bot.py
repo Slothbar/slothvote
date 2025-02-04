@@ -58,10 +58,11 @@ async def register(update: Update, context: CallbackContext):
     except Exception as e:
         logging.warning(f"Could not delete message: {e}")
 
-    # ✅ Reply with confirmation that the wallet was registered
-    await update.message.reply_text(
-        f"✅ Your wallet `{masked_wallet}` has been registered!\n"
-        f"Now send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`."
+    # ✅ Send a NEW message (instead of replying to deleted one)
+    await context.bot.send_message(
+        chat_id=update.message.chat_id,
+        text=f"✅ Your wallet `{masked_wallet}` has been registered!\n"
+             f"Now send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`."
     )
 
 async def verify(update: Update, context: CallbackContext):
@@ -156,8 +157,8 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("begin", begin))
-    application.add_handler(CommandHandler("register", register))  # ✅ `/register` is here
-    application.add_handler(CommandHandler("verify", verify))  # ✅ `/verify` is now restored
+    application.add_handler(CommandHandler("register", register))
+    application.add_handler(CommandHandler("verify", verify))
     application.add_handler(CommandHandler("create_poll", create_poll))
 
     application.run_polling()
