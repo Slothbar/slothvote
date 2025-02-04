@@ -84,8 +84,9 @@ async def verify(update: Update, context: CallbackContext):
 
     sender_wallet = USER_WALLETS[user_id]
 
+    # 🔹 Fetch last 100 transactions (increased from 50)
     response = requests.get(
-        f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=50"
+        f"https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id={sender_wallet}&limit=100"
     )
 
     if response.status_code != 200:
@@ -93,18 +94,28 @@ async def verify(update: Update, context: CallbackContext):
         return
 
     data = response.json()
+    found_payment = False  # Flag to track if we find a valid transaction
 
     for transaction in data.get("transactions", []):
         transfers = transaction.get("transfers", [])
         token_transfers = transaction.get("token_transfers", [])
 
+        # 🔹 Check if payment was sent via HBAR transfer
         for transfer in transfers:
             if transfer["account"] == HEDERA_ACCOUNT_ID and abs(transfer["amount"]) >= SLOTH_AMOUNT:
-                PAID_USERS[user_id] = True
-                await send_poll(update, context)
-                return
+                found_payment = True
 
-    await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount.")
+        # 🔹 Check if payment was sent via $SLOTH token (HTS transfer)
+        for transfer in token_transfers:
+            if transfer["token_id"] == SLOTH_TOKEN_ID and transfer["account"] == HEDERA_ACCOUNT_ID:
+                found_payment = True
+
+        if found_payment:
+            PAID_USERS[user_id] = True
+            await send_poll(update, context)
+            return
+
+    await update.message.reply_text("⚠️ No valid payment found from your registered wallet. Make sure you sent the correct amount and try again.")
 
 async def send_poll(update: Update, context: CallbackContext):
     """Automatically sends the current poll to verified users, including project details."""
