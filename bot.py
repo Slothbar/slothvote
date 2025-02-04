@@ -66,6 +66,38 @@ async def register(update: Update, context: CallbackContext):
         text=f"✅ Your wallet `{masked_wallet}` has been registered!\n"
              f"Now send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`."
     )
+    
+async def send_poll(update: Update, context: CallbackContext):
+    """Automatically sends the current poll to verified users, including project details."""
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id  # Get the chat ID
+
+    logging.info(f"✅ DEBUG: Sending poll - ACTIVE_POLL: {ACTIVE_POLL}")
+
+    if user_id in VOTED_USERS:
+        await context.bot.send_message(chat_id=user_id, text="⚠️ You have already voted! Duplicate votes are not allowed.")
+        return
+
+    if not ACTIVE_POLL:
+        await context.bot.send_message(chat_id=user_id, text="⚠️ No active poll available.")
+        return
+
+    if ACTIVE_POLL_INFO:
+        await context.bot.send_message(chat_id=user_id, text=f"📝 **Poll Details:**\n{ACTIVE_POLL_INFO}")
+
+    try:
+        poll_message = await context.bot.send_poll(
+            chat_id=user_id,  # Send poll directly to user
+            question=ACTIVE_POLL["question"],
+            options=ACTIVE_POLL["options"],
+            is_anonymous=False
+        )
+        VOTED_USERS.add(user_id)
+        await context.bot.send_message(chat_id=user_id, text="✅ Your vote has been counted!")
+
+    except Exception as e:
+        logging.error(f"❌ ERROR sending poll: {e}")
+        await context.bot.send_message(chat_id=user_id, text="⚠️ Error sending poll. Please contact an admin.")
 
 async def verify(update: Update, context: CallbackContext):
     """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
