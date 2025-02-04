@@ -33,23 +33,26 @@ async def begin(update: Update, context: CallbackContext):
     )
 
 async def register(update: Update, context: CallbackContext):
-    """Register the user's sending wallet address."""
+    """Register the user's sending wallet address and mask it in chat."""
     user_id = update.message.from_user.id
     args = context.args
 
     if not args:
-        await update.message.reply_text("⚠️ Please provide your Hedera wallet address after `/register`. Example:\n/register 0.0.123456")
+        await update.message.reply_text("⚠️ Please provide your Hedera wallet address after `/register`. Example:\n/register 0.0.1234567")
         return
 
     wallet_address = args[0]
 
     if not wallet_address.startswith("0.0.") or not wallet_address.replace("0.0.", "").isdigit():
-        await update.message.reply_text("⚠️ Invalid wallet address format! Use a valid Hedera account ID like `0.0.123456`.")
+        await update.message.reply_text("⚠️ Invalid wallet address format! Use a valid Hedera account ID like `0.0.1234567`.")
         return
 
-    USER_WALLETS[user_id] = wallet_address
+    USER_WALLETS[user_id] = wallet_address  # Store the real wallet
 
-    await update.message.reply_text(f"✅ Your wallet `{wallet_address}` has been registered!\nNow send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`.")
+    # Mask the wallet for the group message (keep the first part as X.X.)
+    masked_wallet = "X.X.XXXXXXX"
+
+    await update.message.reply_text(f"✅ Your wallet `{masked_wallet}` has been registered!\nNow send `{SLOTH_AMOUNT} $SLOTH` to `{HEDERA_ACCOUNT_ID}` and use `/verify`.")
 
 async def verify(update: Update, context: CallbackContext):
     """Verify if the user has sent the required amount of $SLOTH from their registered wallet."""
