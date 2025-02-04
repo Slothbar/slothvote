@@ -61,13 +61,19 @@ async def send_poll(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Error sending poll. Please contact an admin.")
 
 async def poll_handler(update: Update, context: CallbackContext):
-    """Handles user votes and confirms after they vote."""
+    """Handles the poll after a user votes and sends a thank-you message."""
     poll = update.poll
-    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id  # ✅ Ensure message goes to the group
 
-    # Check if this is the active poll
-    if poll.id == context.bot_data.get("poll_id"):
-        await context.bot.send_message(chat_id=chat_id, text="✅ Your vote has been counted!")
+    if user_id in VOTED_USERS:
+        await context.bot.send_message(chat_id=chat_id, text="⚠️ You have already voted! Duplicate votes are not allowed.")
+        return
+
+    VOTED_USERS.add(user_id)
+
+    # ✅ Thank-you message after voting
+    await context.bot.send_message(chat_id=chat_id, text="✅ Thank you for voting! Your vote has been recorded.")
 
 async def register(update: Update, context: CallbackContext):
     """Register the user's sending wallet address, mask it in chat, and delete the user's input while confirming registration."""
