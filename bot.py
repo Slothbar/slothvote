@@ -30,18 +30,28 @@ async def check_hedera_wallet(wallet_address):
                 # ✅ Print response for debugging
                 print("Hedera API Response:", data)
                 
-                # Check if tokens exist
-                if "tokens" in data:
-                    for token in data["tokens"]:
-                        print(f"Checking Token: {token}")  # Print each token for debugging
+                if "balance" in data and "tokens" in data["balance"]:
+                    for token in data["balance"]["tokens"]:
+                        print(f"Checking Token: {token}")  # Debug output
 
+                        # Compare token ID correctly
                         if token["token_id"] == SLOTHBAR_TOKEN_ID:
                             balance = int(token["balance"])
-                            print(f"Slothbar Token Found! Balance: {balance}")  # Debug output
-                            return balance > 0  # Returns True if balance > 0
+                            
+                            # ✅ Print balance to verify correct detection
+                            print(f"Slothbar Token Found! Raw Balance: {balance}")
 
-                print("Slothbar Token NOT found in wallet!")
+                            # Consider that token balances may be in micro-units
+                            if balance > 1000000:  # Adjust as needed for decimals
+                                print("✅ Verified: User holds Slothbar tokens.")
+                                return True
+                            
+                            print("❌ User does NOT hold enough Slothbar tokens.")
+                            return False
+
+                print("❌ Slothbar Token NOT found in wallet!")
     return False
+
 
 async def start(update: Update, context: CallbackContext):
     """Handles the /start command."""
