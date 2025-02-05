@@ -21,13 +21,26 @@ logger = logging.getLogger(__name__)
 async def check_hedera_wallet(wallet_address):
     """Query Hedera Mirror Nodes to check Slothbar token balance."""
     url = f"https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/{wallet_address}"
+    
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             if response.status == 200:
                 data = await response.json()
-                for token in data.get("tokens", []):
-                    if token["token_id"] == SLOTHBAR_TOKEN_ID and int(token["balance"]) > 0:
-                        return True
+                
+                # ✅ Print response for debugging
+                print("Hedera API Response:", data)
+                
+                # Check if tokens exist
+                if "tokens" in data:
+                    for token in data["tokens"]:
+                        print(f"Checking Token: {token}")  # Print each token for debugging
+
+                        if token["token_id"] == SLOTHBAR_TOKEN_ID:
+                            balance = int(token["balance"])
+                            print(f"Slothbar Token Found! Balance: {balance}")  # Debug output
+                            return balance > 0  # Returns True if balance > 0
+
+                print("Slothbar Token NOT found in wallet!")
     return False
 
 async def start(update: Update, context: CallbackContext):
