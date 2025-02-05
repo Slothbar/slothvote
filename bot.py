@@ -3,9 +3,10 @@ import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
-import aiohttp
+from aiogram.filters import Command
+from aiogram import F
 from dotenv import load_dotenv
+import aiohttp
 
 # Load environment variables
 load_dotenv()
@@ -17,7 +18,7 @@ SLOTHBAR_TOKEN_ID = os.getenv("SLOTHBAR_TOKEN_ID")
 
 # Initialize bot and dispatcher
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 
 async def check_hedera_wallet(wallet_address):
@@ -32,12 +33,12 @@ async def check_hedera_wallet(wallet_address):
                         return True
     return False
 
-@dp.message_handler(commands=['start'])
+@dp.message(Command("start"))
 async def start(message: types.Message):
     """Handles the /start command."""
     await message.answer("Welcome! Please enter your Hedera wallet address to verify your Slothbar holdings.")
 
-@dp.message_handler()
+@dp.message(F.text)
 async def handle_wallet(message: types.Message):
     """Handles the user's wallet address input."""
     wallet_address = message.text.strip()
@@ -45,9 +46,9 @@ async def handle_wallet(message: types.Message):
     
     is_valid = await check_hedera_wallet(wallet_address)
     if is_valid:
-        keyboard = InlineKeyboardMarkup().add(
-            InlineKeyboardButton("Join Voting Group", url=GROUP_INVITE_LINK)
-        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Join Voting Group", url=GROUP_INVITE_LINK)]
+        ])
         await message.answer("You are verified! Click below to join the voting group.", reply_markup=keyboard)
     else:
         await message.answer("Sorry, you don't have the required Slothbar tokens.")
@@ -56,5 +57,10 @@ async def handle_wallet(message: types.Message):
     await asyncio.sleep(2)
     await message.answer("You can try again by sending your wallet address.")
 
-if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+async def main():
+    """Start the bot."""
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
